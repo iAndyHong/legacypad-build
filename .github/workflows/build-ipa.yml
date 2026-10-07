@@ -1,0 +1,67 @@
+name: Build LegacyPadDisplay IPA (unsigned)
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: "Upstream branch, tag or commit SHA to build"
+        required: false
+        default: "main"
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout upstream source
+        uses: actions/checkout@v4
+        with:
+          repository: cuongpham1/ipad-iphone-second-monitor-ios12-free
+          ref: ${{ inputs.source_ref }}
+
+      - name: 記錄實際編譯的 commit
+        run: |
+          echo "Built commit: $(git rev-parse HEAD)"
+          git log -1 --format='%H %an %ad %s'
+
+      - name: 顯示工具鏈版本
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          swift --version
+
+      - name: 編譯 (不簽名)
+        working-directory: iOS
+        run: |
+          xcodebuild \
+            -project LegacyPadDisplay.xcodeproj \
+            -scheme LegacyPadDisplay \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            IPHONEOS_DEPLOYMENT_TARGET=12.0 \
+            build
+
+      - name: 打包 IPA
+        run: |
+          APP=$(find iOS/build/Build/Products -maxdepth 2 -name 'LegacyPadDisplay.app' | head -n1)
+          test -n "$APP"
+          mkdir -p out/Payload
+          cp -R "$APP" out/Payload/
+          (cd out && zip -qr LegacyPadDisplay.ipa Payload)
+          ls -l out/LegacyPadDisplay.ipa
+
+      - name: 驗證 IPA (MinimumOSVersion)
+        run: |
+          MIN=$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' out/Payload/LegacyPadDisplay.app/Info.plist)
+          echo "MinimumOSVersion=$MIN"
+          test "${MIN%%.*}" -le 12
+
+      - name: 上傳 Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LegacyPadDisplay-unsigned-ipa
+          path: out/LegacyPadDisplay.ipa
